@@ -10,7 +10,7 @@ import SalonPage from "./pages/SalonPage";
 import EditSalonPage from "./pages/EditSalonPage";
 // import BookingsPage from "./pages/BookingsPage";
 import ProfilePage from "./pages/ProfilePage";
-import SalonBookingsPage from "./pages/SalonBookingsPage";
+import SalonBookingsPage from "./pages/SalonbookingsPage";
 
 function App() {
   const { checkAuth, loading } = useAuthStore();
