@@ -1,5 +1,6 @@
 import express from "express";
 import dotenv from "dotenv";
+
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import connectDB from "./config/db.js";
@@ -8,13 +9,14 @@ import salonRoutes from "./routes/salon.route.js";
 import bookingRoutes from "./routes/booking.route.js";
 import ratingRoutes from "./routes/rating.route.js";
 
+dotenv.config();
+
 const app = express();
 
-dotenv.config();
 app.use(express.json());
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: process.env.FRONTEND_URL,
     credentials: true,
   }),
 );
