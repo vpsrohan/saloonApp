@@ -5,6 +5,20 @@ import { useAuthStore } from "../store/authStore";
 import Navbar from "../components/Navbar";
 import axios from "../lib/axios";
 
+// Date inputs represent a calendar date in the visitor's timezone. Keep that
+// date/time local while creating the instant that is saved to the database.
+const getLocalDateString = (date = new Date()) => {
+  const timezoneOffset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 10);
+};
+
+const createLocalSlotDateTime = (dateString, timeString) => {
+  const [year, month, day] = dateString.split("-").map(Number);
+  const [hour, minute] = timeString.split(":").map(Number);
+
+  return new Date(year, month - 1, day, hour, minute).toISOString();
+};
+
 export default function SalonPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -25,7 +39,7 @@ export default function SalonPage() {
     fetchSalonById(id);
 
     // Set default date to today
-    const today = new Date().toISOString().split("T")[0];
+    const today = getLocalDateString();
     setSelectedDate(today);
 
     return () => {
@@ -52,7 +66,9 @@ export default function SalonPage() {
       for (let hour = startHour; hour < endHour; hour++) {
         for (let minute of [0, 30]) {
           const slotTime = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-          const slotDateTime = `${selectedDate}T${slotTime}:00.000Z`;
+          const slotDateTime = new Date(
+            `${selectedDate}T${slotTime}:00`,
+          ).toISOString();
 
           slots.push({
             time: slotTime,
@@ -91,7 +107,7 @@ export default function SalonPage() {
       for (let hour = startHour; hour < endHour; hour++) {
         for (let minute of [0, 30]) {
           const slotTime = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-          const slotDateTime = `${selectedDate}T${slotTime}:00.000Z`;
+          const slotDateTime = createLocalSlotDateTime(selectedDate, slotTime);
 
           slots.push({
             time: slotTime,
@@ -120,13 +136,27 @@ export default function SalonPage() {
       return;
     }
 
+    // ✅ Backend requires an Idempotency-Key header on every booking POST
+    // (used to safely dedupe retried requests). Without it, addBooking
+    // always returns 400 "Idempotency key is required".
+    const idempotencyKey =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
     // Make booking
     try {
-      const response = await axios.post("/bookings", {
-        salonId: id,
-        serviceId: selectedService._id,
-        slotStart: slot.dateTime,
-      });
+      const response = await axios.post(
+        "/bookings",
+        {
+          salonId: id,
+          serviceId: selectedService._id,
+          slotStart: slot.dateTime,
+        },
+        {
+          headers: { "Idempotency-Key": idempotencyKey },
+        }
+      );
 
       alert(
         `Booking successful! Your queue number is ${response.data.queueNumber}`
@@ -251,7 +281,7 @@ export default function SalonPage() {
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              min={new Date().toISOString().split("T")[0]}
+              min={getLocalDateString()}
               className="border p-2 rounded"
             />
           </div>
@@ -272,7 +302,7 @@ export default function SalonPage() {
                   const isAvailable = slot.available > 0;
                   const isPast =
                     new Date(slot.dateTime) < new Date() &&
-                    selectedDate === new Date().toISOString().split("T")[0];
+                    selectedDate === getLocalDateString();
 
                   return (
                     <button

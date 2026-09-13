@@ -2,6 +2,12 @@ import Users from "../models/userModel.js";
 import bcrypt from "bcryptjs";
 import generateToken from "../utils/generateToken.js";
 
+const sanitizeUser = (user) => ({
+  _id: user._id,
+  fullName: user.fullName,
+  email: user.email,
+  role: user.role,
+});
 export const SignupController = async (req, res) => {
   try {
     const { fullName, email, password, role } = req.body;
@@ -45,7 +51,7 @@ export const SignupController = async (req, res) => {
 
       return res.status(201).json({
         message: "signedup Successfully",
-        NewUser,
+        user: sanitizeUser(NewUser),
       });
     }
   } catch (e) {
@@ -76,12 +82,7 @@ export const LoginController = async (req, res) => {
 
   return res.status(200).json({
     message: "Login successful",
-    user: {
-      id: user._id,
-      fullName: user.fullName,
-      email: user.email,
-      role: user.role,
-    },
+    user: sanitizeUser(user),
   });
 };
 

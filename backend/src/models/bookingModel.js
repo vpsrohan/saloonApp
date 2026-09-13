@@ -30,12 +30,41 @@ const bookingModel = mongoose.Schema(
     },
     status: {
       type: String,
-      ENUM: ["PENDING", "PROGRESS", "DONE", "CANCELLED"],
+      enum: ["PENDING", "PROGRESS", "DONE", "CANCELLED"],
       required: true,
+    },
+    idempotencyKey: {
+      type: String,
+      required: true,
+      unique: true,
     },
   },
   { timestamps: true },
 );
+
+bookingModel.index({
+  userId: 1,
+  createdAt: -1,
+});
+
+bookingModel.index({
+  salonId: 1,
+  slotStart: 1,
+});
+
+bookingModel.index({
+  userId: 1,
+  status: 1,
+  slotStart: 1,
+  slotEnd: 1,
+});
+
+bookingModel.index({
+  salonId: 1,
+  serviceId: 1,
+  slotStart: 1,
+  status: 1,
+});
 
 const Bookings = mongoose.model("Bookings", bookingModel);
 

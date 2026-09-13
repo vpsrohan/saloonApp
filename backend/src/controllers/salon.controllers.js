@@ -83,7 +83,7 @@ export const updateSalon = async (req, res) => {
     }
 
     // ✅ Fixed: model uses 'Name' not 'name'
-    salon.Name = req.body.name || salon.Name;
+    salon.Name = req.body.Name || salon.Name;
     // ✅ Fixed: properly handle boolean false
     salon.isActive =
       req.body.isActive !== undefined ? req.body.isActive : salon.isActive;

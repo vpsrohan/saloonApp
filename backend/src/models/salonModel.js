@@ -16,6 +16,7 @@ const salonModel = mongoose.Schema(
     Name: {
       type: String,
       required: true,
+      unique: true,
     },
     ratingAvg: {
       type: Number,
@@ -39,6 +40,9 @@ const salonModel = mongoose.Schema(
   { timestamps: true },
 );
 
+salonModel.index({
+  Name: 1,
+});
 const Salons = mongoose.model("Salons", salonModel);
 
 export default Salons;

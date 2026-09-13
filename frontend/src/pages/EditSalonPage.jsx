@@ -26,11 +26,11 @@ export default function EditSalonPage() {
     try {
       setLoading(true);
       const res = await axios.get(`/salons/${id}`);
-      
+
       setName(res.data.name);
       setIsActive(res.data.isActive !== false); // Default to true if not present
       setServices(res.data.services || []);
-      
+
       setLoading(false);
     } catch (err) {
       setError(err.response?.data?.message || "Failed to load salon");
@@ -88,8 +88,11 @@ export default function EditSalonPage() {
         return service;
       });
 
+      // ✅ Backend's updateSalon reads req.body.Name (capital N) since the
+      // salon model field is `Name`. Sending lowercase `name` here meant
+      // this form was silently failing to save the salon's name.
       await axios.patch(`/salons/${id}`, {
-        name,
+        Name: name,
         isActive,
         services: cleanedServices,
       });

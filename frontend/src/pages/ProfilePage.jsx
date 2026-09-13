@@ -47,13 +47,14 @@ export default function ProfilePage() {
     }
   };
 
+  // ✅ Backend booking status enum is PENDING / PROGRESS / DONE / CANCELLED
   const getStatusColor = (status) => {
     switch (status) {
       case "PENDING":
         return "bg-yellow-100 text-yellow-800 border-yellow-300";
-      case "IN_PROGRESS":
+      case "PROGRESS":
         return "bg-blue-100 text-blue-800 border-blue-300";
-      case "COMPLETED":
+      case "DONE":
         return "bg-green-100 text-green-800 border-green-300";
       case "CANCELLED":
         return "bg-red-100 text-red-800 border-red-300";
@@ -87,12 +88,12 @@ export default function ProfilePage() {
   );
 
   const activeBooking = filteredBookings.find(
-    (b) => b.status === "IN_PROGRESS"
+    (b) => b.status === "PROGRESS"
   );
 
   const pastBookings = filteredBookings.filter(
     (b) =>
-      b.status === "COMPLETED" ||
+      b.status === "DONE" ||
       b.status === "CANCELLED" ||
       (b.status === "PENDING" && new Date(b.slotStart) <= new Date())
   );
@@ -198,8 +199,8 @@ export default function ProfilePage() {
             {[
               { key: "all", label: "All" },
               { key: "pending", label: "Upcoming" },
-              { key: "in_progress", label: "Active" },
-              { key: "completed", label: "Completed" },
+              { key: "progress", label: "Active" },
+              { key: "done", label: "Completed" },
               { key: "cancelled", label: "Cancelled" },
             ].map((tab) => (
               <button

@@ -15,7 +15,7 @@ export const addRating = async (req, res) => {
         .json({ message: "Please provide rating and booking details" });
     }
 
-    if (booking.STATUS !== "COMPLETED") {
+    if (booking.status !== "DONE") {
       return res.status(401).json({ message: "Booked Service not completed" });
     }
 

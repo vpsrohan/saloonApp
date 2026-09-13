@@ -23,7 +23,11 @@ export const useAuthStore = create((set, get) => ({
 
   signup: async (data) => {
     const res = await axios.post("/auth/signup", data);
-    set({ user: res.data.NewUser });
+    // ✅ backend now returns { user: {...} } (same shape as login/check),
+    // previously it returned { NewUser: {...} } with an "id" vs "_id"
+    // mismatch that broke owner checks (e.g. Edit/Delete salon buttons)
+    // right after signing up until the next page refresh.
+    set({ user: res.data.user });
   },
 
   logout: async () => {

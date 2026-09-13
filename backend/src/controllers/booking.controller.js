@@ -1,17 +1,63 @@
+import mongoose from "mongoose";
 import Bookings from "../models/bookingModel.js";
 import Salons from "../models/salonModel.js";
 import Users from "../models/userModel.js";
 import { acquireLock, releaseLock } from "../utils/redisLock.js";
 
+const allowedTransitions = {
+  PENDING: ["PROGRESS", "CANCELLED"],
+  PROGRESS: ["DONE"],
+  DONE: [],
+  CANCELLED: [],
+};
+
+export const canTransition = (currentStatus, nextStatus) => {
+  return allowedTransitions[currentStatus]?.includes(nextStatus);
+};
+
+const serializeService = (salonDoc, serviceId) => {
+  const service = salonDoc?.services?.id
+    ? salonDoc.services.id(serviceId)
+    : null;
+
+  return service
+    ? {
+        _id: service._id,
+        name: service.name,
+        price: service.price,
+        duration: service.duration,
+      }
+    : null;
+};
+
 export const getAllBookings = async (req, res) => {
   try {
     const user = req.user;
 
-    const bookings = await Bookings.find({ userId: user._id }).sort({
-      createdAt: -1,
+    // ✅ populate salonId (has a real ref) and grab `services` too so we
+    // can pull the matching service snapshot below. Previously salonId
+    // was left as a raw ObjectId string and serviceId was never
+    // resolvable, so the frontend's "Salon name / Service name / price"
+    // fields always fell back to their placeholder text.
+    const bookings = await Bookings.find({ userId: user._id })
+      .populate("salonId", "Name services")
+      .sort({ createdAt: -1 });
+
+    const enriched = bookings.map((booking) => {
+      const b = booking.toObject();
+      const salonDoc = booking.salonId; // populated doc, or null if salon was deleted
+      const service = serializeService(salonDoc, booking.serviceId);
+
+      return {
+        ...b,
+        salonId: salonDoc
+          ? { _id: salonDoc._id, name: salonDoc.Name }
+          : b.salonId,
+        serviceId: service || b.serviceId,
+      };
     });
 
-    return res.status(200).json(bookings);
+    return res.status(200).json(enriched);
   } catch (e) {
     console.log("erorr in getBookings controller", e);
     return res.status(500).json("server error");
@@ -36,7 +82,16 @@ export const getSalonBookings = async (req, res) => {
       .populate("userId", "fullName email")
       .sort({ slotStart: 1 });
 
-    return res.status(200).json(bookings);
+    const enriched = bookings.map((booking) => {
+      const b = booking.toObject();
+      const service = serializeService(salon, booking.serviceId);
+      return {
+        ...b,
+        serviceId: service || b.serviceId,
+      };
+    });
+
+    return res.status(200).json(enriched);
   } catch (e) {
     console.error("error in getSalonBooking controller", e);
     return res.status(500).json("Server error");
@@ -45,17 +100,58 @@ export const getSalonBookings = async (req, res) => {
 
 export const addBooking = async (req, res) => {
   const { salonId, serviceId, slotStart } = req.body;
-  //   console.log("req.body", req.body);
+
   const userId = req.user._id;
+
+  const idempotencyKey = req.get("Idempotency-Key");
+
+  if (!idempotencyKey) {
+    return res.status(400).json({
+      messaage: "Idempotency key is requiured",
+    });
+  }
+
+  const existingBooking = await Bookings.findOne({
+    idempotencyKey,
+    userId,
+  });
+
+  if (existingBooking) {
+    return res.status(200).json(existingBooking);
+  }
+  //   console.log("req.body", req.body);
+  if (!salonId || !serviceId || !slotStart) {
+    return res.status(400).json({
+      message: "all fields not present ",
+    });
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(salonId)) {
+    return res.status(400).json({
+      message: "salonID in incorrect format",
+    });
+  }
+  if (!mongoose.Types.ObjectId.isValid(serviceId)) {
+    return res.status(400).json({
+      message: "serviceId in incorrect format",
+    });
+  }
+
+  const slotStartTime = new Date(slotStart);
+
+  if (isNaN(slotStartTime.getTime())) {
+    return res.status(400).json({
+      message: "Invalid slotStart",
+    });
+  }
 
   const lockKey = `lock:${salonId}:${serviceId}:${slotStart}`;
 
   try {
-    const lock = await acquireLock(lockKey, 5);
-
-    if (!lock) {
+    const lockToken = await acquireLock(lockKey, 10);
+    if (!lockToken) {
       return res.status(409).json({
-        message: "Someone is booking this slot. Try again.",
+        message: "Someone else is booking the slot",
       });
     }
 
@@ -71,7 +167,7 @@ export const addBooking = async (req, res) => {
         return res.status(400).json({ message: "Service not available" });
       }
 
-      const slotStartTime = new Date(slotStart);
+      // const slotStartTime = new Date(slotStart);
       const slotEndTime = new Date(
         slotStartTime.getTime() + service.duration * 60 * 1000,
       );
@@ -82,7 +178,6 @@ export const addBooking = async (req, res) => {
         slotStart: { $lt: slotEndTime },
         slotEnd: { $gt: slotStartTime },
       });
-
       if (overlapping) {
         return res
           .status(400)
@@ -108,19 +203,28 @@ export const addBooking = async (req, res) => {
         slotEnd: slotEndTime,
         queueNumber: existingCount + 1,
         status: "PENDING",
+        idempotencyKey,
       });
 
-      await newBooking.save();
-      await Users.findByIdAndUpdate(userId, {
-        activeBookingId: newBooking._id,
-      });
+      // await newBooking.save();
+      // await Users.findByIdAndUpdate(userId, {
+      //   activeBookingId: newBooking._id,
+      // });
 
       return res.status(201).json(newBooking);
     } finally {
-      await releaseLock(lockKey);
+      await releaseLock(lockKey, lockToken);
     }
   } catch (e) {
     console.error("error in addBooking", e);
+
+    if (e.code === 11000 && e.keyPattern?.idempotencyKey) {
+      const existingBooking = await Bookings.findOne({
+        idempotencyKey,
+        userId,
+      });
+      return res.status(200).json(existingBooking);
+    }
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -151,10 +255,6 @@ export const cancelBooking = async (req, res) => {
     booking.status = "CANCELLED";
     await booking.save();
 
-    await Users.findByIdAndUpdate(UserId, {
-      activeBookingId: null,
-    });
-
     return res.json(booking);
   } catch (e) {
     console.log("error in cancelBooking controller", e);
@@ -172,8 +272,10 @@ export const startService = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    if (booking.status !== "PENDING") {
-      return res.status(400).json({ message: "Booking cannot be started" });
+    if (!canTransition(booking.status, "PROGRESS")) {
+      return res.status(400).json({
+        message: "Booking cannot be started",
+      });
     }
 
     const salon = await Salons.findById(booking.salonId);
@@ -181,7 +283,7 @@ export const startService = async (req, res) => {
       return res.status(403).json({ message: "Not your salon" });
     }
 
-    booking.status = "IN_PROGRESS";
+    booking.status = "PROGRESS";
     await booking.save();
 
     return res.status(200).json({
@@ -208,23 +310,19 @@ export const endService = async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    if (booking.status !== "IN_PROGRESS") {
-      return res.status(400).json({ message: "Service not in progress" });
+    if (!canTransition(booking.status, "DONE")) {
+      return res.status(400).json({
+        message: "Service cannot be completed",
+      });
     }
-
     const salon = await Salons.findById(booking.salonId);
     if (!salon || salon.ownerId.toString() !== adminId.toString()) {
       return res.status(403).json({ message: "Not your salon" });
     }
 
-    booking.status = "COMPLETED";
-    booking.completedAt = new Date();
+    booking.status = "DONE";
+    booking.slotEnd = new Date();
     await booking.save();
-
-    // Free the user
-    await Users.findByIdAndUpdate(booking.userId, {
-      activeBookingId: null,
-    });
 
     return res.status(200).json({
       message: "Service completed",
@@ -259,7 +357,7 @@ export const getAvailability = async (req, res) => {
         $gte: startOfDay,
         $lte: endOfDay,
       },
-      status: { $in: ["PENDING", "IN_PROGRESS"] }, // Don't count cancelled/completed
+      status: { $in: ["PENDING", "PROGRESS"] }, // Don't count cancelled/completed
     });
 
     // Count bookings per time slot

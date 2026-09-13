@@ -22,7 +22,7 @@ export default function SalonCard({ salon, user, onClick }) {
       await axios.delete(`/salons/${salon._id}`);
       
       // ✅ Reload page (you can replace with store update later)
-      window.location.reload();
+      window.location.reload(); 
     } catch (err) {
       console.error(err);
       alert(err.response?.data?.message || "Failed to delete salon");

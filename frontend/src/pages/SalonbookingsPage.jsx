@@ -72,13 +72,14 @@ export default function SalonBookingsPage() {
     }
   };
 
+  // ✅ Backend booking status enum is PENDING / PROGRESS / DONE / CANCELLED
   const getStatusColor = (status) => {
     switch (status) {
       case "PENDING":
         return "bg-yellow-100 text-yellow-800 border-yellow-300";
-      case "IN_PROGRESS":
+      case "PROGRESS":
         return "bg-blue-100 text-blue-800 border-blue-300";
-      case "COMPLETED":
+      case "DONE":
         return "bg-green-100 text-green-800 border-green-300";
       case "CANCELLED":
         return "bg-red-100 text-red-800 border-red-300";
@@ -146,7 +147,7 @@ export default function SalonBookingsPage() {
 
     return (
       <div className={`border rounded-lg p-4 hover:shadow-md transition ${
-        booking.status === "IN_PROGRESS" ? "border-blue-400 bg-blue-50" : ""
+        booking.status === "PROGRESS" ? "border-blue-400 bg-blue-50" : ""
       }`}>
         <div className="flex justify-between items-start mb-3">
           <div>
@@ -212,7 +213,7 @@ export default function SalonBookingsPage() {
               Start Service
             </button>
           )}
-          {booking.status === "IN_PROGRESS" && (
+          {booking.status === "PROGRESS" && (
             <button
               onClick={() => handleEndService(booking._id)}
               className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 transition flex items-center gap-2"
@@ -223,9 +224,12 @@ export default function SalonBookingsPage() {
               Complete Service
             </button>
           )}
-          {booking.status === "COMPLETED" && booking.completedAt && (
+          {booking.status === "DONE" && (
+            // ✅ backend now overwrites slotEnd with the actual completion
+            // time in endService (instead of a separate completedAt field),
+            // so we read it from there.
             <p className="text-xs text-green-600">
-              ✓ Completed on {formatDateTime(booking.completedAt).date} at {formatDateTime(booking.completedAt).time}
+              ✓ Completed on {formatDateTime(booking.slotEnd).date} at {formatDateTime(booking.slotEnd).time}
             </p>
           )}
         </div>
@@ -258,8 +262,8 @@ export default function SalonBookingsPage() {
             { key: "all", label: "All" },
             { key: "today", label: "Today" },
             { key: "pending", label: "Pending" },
-            { key: "in_progress", label: "In Progress" },
-            { key: "completed", label: "Completed" },
+            { key: "progress", label: "In Progress" },
+            { key: "done", label: "Completed" },
             { key: "cancelled", label: "Cancelled" },
           ].map((tab) => (
             <button
