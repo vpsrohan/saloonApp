@@ -8,6 +8,7 @@ import authRoutes from "./routes/auth.routes.js";
 import salonRoutes from "./routes/salon.route.js";
 import bookingRoutes from "./routes/booking.route.js";
 import ratingRoutes from "./routes/rating.route.js";
+import chatRoutes from "./routes/chat.routes.js";
 
 dotenv.config();
 
@@ -27,6 +28,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/salons", salonRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/ratings", ratingRoutes);
+app.use("/api/chat", chatRoutes);
 
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok" });
