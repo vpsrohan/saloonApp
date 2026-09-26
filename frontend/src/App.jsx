@@ -10,7 +10,8 @@ import SalonPage from "./pages/SalonPage";
 import EditSalonPage from "./pages/EditSalonPage";
 // import BookingsPage from "./pages/BookingsPage";
 import ProfilePage from "./pages/ProfilePage";
-import SalonBookingsPage from "./pages/SalonbookingsPage";
+import SalonBookingsPage from "./pages/SalonBookingsPage";
+import ChatWidget from "./components/chatWidget";
 
 function App() {
   const { checkAuth, loading } = useAuthStore();
@@ -39,6 +40,10 @@ function App() {
         {/* <Route path="/bookings" element={<BookingsPage />} /> */}
         <Route path="/profile" element={<ProfilePage />} />
       </Routes>
+
+      {/* Rendered outside <Routes> so it stays mounted (and the
+          conversation persists) as the user navigates between pages. */}
+      <ChatWidget />
     </BrowserRouter>
   );
 }
