@@ -121,9 +121,17 @@ export const Chat = async (req, res) => {
     const today = new Date().toISOString().split("T")[0];
     const systemPrompt = `${SYSTEM_PROMPT_BASE}\n\nToday's date is ${today} (YYYY-MM-DD) — use this to resolve relative dates like "today" or "tomorrow" before calling checkAvailability.`;
 
+    // ✅ `history` coming from the client should only ever be actual
+    // conversation turns (user/assistant/tool) — never a system prompt.
+    // We strip any "system" entries defensively here too, in case an
+    // older stored history slips through, so it can never stack up.
+    const priorTurns = Array.isArray(history)
+      ? history.filter((m) => m.role !== "system")
+      : [];
+
     const messages = [
       { role: "system", content: systemPrompt },
-      ...(Array.isArray(history) ? history : []),
+      ...priorTurns,
       { role: "user", content: message },
     ];
 
@@ -139,9 +147,16 @@ export const Chat = async (req, res) => {
 
       // No tool calls → the model is giving its final answer.
       if (!assistantMessage.tool_calls?.length) {
+        // ✅ Strip the system prompt back out before handing history to
+        // the client. Each request rebuilds its own system prompt (with
+        // a fresh "today"), so it must never be part of what gets
+        // round-tripped and re-prepended on the next turn — otherwise
+        // it stacks up by one extra system message every single turn.
+        const conversationHistory = messages.filter((m) => m.role !== "system");
+
         return res.status(200).json({
           message: assistantMessage.content,
-          history: messages,
+          history: conversationHistory,
         });
       }
 
