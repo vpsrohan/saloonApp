@@ -1,5 +1,10 @@
 import { groq } from "../config/groq.js";
-import { listSalons, getSalonServices } from "../tools/salon.tools.js";
+import {
+  listSalons,
+  getSalonServices,
+  checkAvailability,
+  getUserBookings,
+} from "../tools/salon.tools.js";
 
 const tools = [
   {
@@ -32,94 +37,148 @@ const tools = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "checkAvailability",
+      description:
+        "Check available time slots for a specific service at a specific salon, on a specific date. Use this whenever the user asks about open slots, availability, or whether a day/time is free — do NOT guess availability yourself.",
+      parameters: {
+        type: "object",
+        properties: {
+          salonName: {
+            type: "string",
+            description: "Exact salon name, matching the database.",
+          },
+          serviceName: {
+            type: "string",
+            description: "Exact service name offered by that salon.",
+          },
+          date: {
+            type: "string",
+            description: "Date to check, in YYYY-MM-DD format.",
+          },
+        },
+        required: ["salonName", "serviceName", "date"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "getUserBookings",
+      description:
+        "Get the current logged-in user's own bookings (upcoming and past). Takes no arguments — always returns bookings for whichever user is chatting. If the user is not logged in, this will say so.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
 ];
+
+const SYSTEM_PROMPT_BASE = `You are a helpful assistant for a salon booking app. You can help users:
+- Browse active salons
+- See the services and prices a salon offers
+- Check available time slots for a service on a given date
+- Look up their own past/upcoming bookings
+
+You can ONLY read information using the tools provided — you cannot create, modify, or cancel a booking, and you cannot change any account or salon details. If the user asks you to book, reschedule, cancel, or edit anything (or asks for anything else this assistant isn't designed for), do NOT attempt it and do NOT pretend you did it. Instead, tell them clearly that this can't be done through chat and that they should use the app directly:
+- To book: browse the salon's page and pick a service + time slot
+- To cancel a booking: go to their Profile page
+- To edit a salon's details: use the salon's Edit page (admins only)
+
+Keep answers short and friendly. If a tool returns an error or no results, say so plainly rather than guessing.`;
+
+const MAX_TOOL_ROUNDS = 4;
 
 export const Chat = async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, history } = req.body;
 
-    // 1. Ask the LLM what to do
-    const response = await groq.chat.completions.create({
-      model: "openai/gpt-oss-20b",
-      messages: [
-        {
-          role: "user",
-          content: message,
-        },
-      ],
-      tools,
-    });
+    if (!message || typeof message !== "string") {
+      return res.status(400).json({ message: "message is required" });
+    }
 
-    //console.log(response);
-    const assistantMessage = response.choices[0].message;
-    console.log(JSON.stringify(assistantMessage.tool_calls, null, 2));
-    // 2. Did the LLM ask us to use a tool?
-    if (assistantMessage.tool_calls) {
-      const toolCall = assistantMessage.tool_calls[0];
+    // req.user is only present if optionalAuth found a valid cookie —
+    // getUserBookings below checks for this itself.
+    const toolHandlers = {
+      listSalons: async () => listSalons(),
+      getSalonServices: async (args) => getSalonServices(args.salonName),
+      checkAvailability: async (args) => checkAvailability(args),
+      getUserBookings: async () => {
+        if (!req.user) {
+          return {
+            error:
+              "not_authenticated: the user is not logged in, so their bookings can't be looked up. Tell them to log in first.",
+          };
+        }
+        return getUserBookings(req.user._id);
+      },
+    };
 
-      // 3. Execute the requested tool
-      if (toolCall.function.name === "listSalons") {
-        const salons = await listSalons();
+    const today = new Date().toISOString().split("T")[0];
+    const systemPrompt = `${SYSTEM_PROMPT_BASE}\n\nToday's date is ${today} (YYYY-MM-DD) — use this to resolve relative dates like "today" or "tomorrow" before calling checkAvailability.`;
 
-        // 4. Give the tool result back to the LLM
-        const finalResponse = await groq.chat.completions.create({
-          model: "openai/gpt-oss-20b",
+    const messages = [
+      { role: "system", content: systemPrompt },
+      ...(Array.isArray(history) ? history : []),
+      { role: "user", content: message },
+    ];
 
-          messages: [
-            {
-              role: "user",
-              content: message,
-            },
-            {
-              role: "assistant",
-              tool_calls: assistantMessage.tool_calls,
-            },
-            {
-              role: "tool",
-              tool_call_id: toolCall.id,
-              content: JSON.stringify(salons),
-            },
-          ],
-        });
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      const response = await groq.chat.completions.create({
+        model: "openai/gpt-oss-20b",
+        messages,
+        tools,
+      });
 
-        // 5. Send the LLM's final answer to the user
+      const assistantMessage = response.choices[0].message;
+      messages.push(assistantMessage);
+
+      // No tool calls → the model is giving its final answer.
+      if (!assistantMessage.tool_calls?.length) {
         return res.status(200).json({
-          message: finalResponse.choices[0].message.content,
+          message: assistantMessage.content,
+          history: messages,
         });
       }
 
-      if (toolCall.function.name === "getSalonServices") {
-        const args = JSON.parse(toolCall.function.arguments);
-        const services = await getSalonServices(args.salonName);
+      // Run every tool call the model asked for this round, then loop
+      // again so it can chain further tool calls or give a final answer.
+      for (const toolCall of assistantMessage.tool_calls) {
+        const handler = toolHandlers[toolCall.function.name];
+        let result;
 
-        const finalResponse = await groq.chat.completions.create({
-          model: "openai/gpt-oss-20b",
+        if (!handler) {
+          result = { error: `Unknown tool: ${toolCall.function.name}` };
+        } else {
+          try {
+            const args = toolCall.function.arguments
+              ? JSON.parse(toolCall.function.arguments)
+              : {};
+            result = await handler(args);
+          } catch (toolErr) {
+            console.error(
+              `Error running tool ${toolCall.function.name}:`,
+              toolErr,
+            );
+            result = { error: "Tool execution failed" };
+          }
+        }
 
-          messages: [
-            {
-              role: "user",
-              content: message,
-            },
-            assistantMessage,
-            {
-              role: "tool",
-              tool_call_id: toolCall.id,
-              content: JSON.stringify(services),
-            },
-          ],
-
-          tool_choice: "none",
-        });
-
-        return res.status(200).json({
-          message: finalResponse.choices[0].message.content,
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(result),
         });
       }
     }
 
-    // If the LLM didn't use a tool
     return res.status(200).json({
-      message: assistantMessage.content,
+      message:
+        "Sorry, I couldn't finish looking that up right now. Please try rephrasing your question.",
     });
   } catch (e) {
     console.error("Error in chat controller:", e);
