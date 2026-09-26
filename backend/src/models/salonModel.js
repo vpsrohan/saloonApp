@@ -43,6 +43,10 @@ const salonModel = mongoose.Schema(
 salonModel.index({
   Name: 1,
 });
+
+salonModel.index({
+  isActive: 1,
+});
 const Salons = mongoose.model("Salons", salonModel);
 
 export default Salons;
