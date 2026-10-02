@@ -3,6 +3,10 @@ import Bookings from "../models/bookingModel.js";
 import Salons from "../models/salonModel.js";
 import Users from "../models/userModel.js";
 import { acquireLock, releaseLock } from "../utils/redisLock.js";
+import {
+  sendBookingConfirmation,
+  sendBookingCompleted,
+} from "../services/email.service.js";
 
 const allowedTransitions = {
   PENDING: ["PROGRESS", "CANCELLED"],
@@ -206,11 +210,20 @@ export const addBooking = async (req, res) => {
         idempotencyKey,
       });
 
-      // await newBooking.save();
-      // await Users.findByIdAndUpdate(userId, {
-      //   activeBookingId: newBooking._id,
-      // });
+      try {
+        const user = await Users.findById(userId).select("email");
 
+        await sendBookingConfirmation({
+          to: user.email,
+          bookingId: newBooking._id,
+          salonName: salon.Name,
+          serviceName: service.name,
+          slotStart: slotStartTime,
+          queueNumber: newBooking.queueNumber,
+        });
+      } catch (e) {
+        console.error("Booking created but confirmation email failed");
+      }
       return res.status(201).json(newBooking);
     } finally {
       await releaseLock(lockKey, lockToken);
@@ -323,6 +336,22 @@ export const endService = async (req, res) => {
     booking.status = "DONE";
     booking.slotEnd = new Date();
     await booking.save();
+
+    try {
+      const user = await Users.findById(booking.userId).select("email");
+
+      await sendBookingCompleted({
+        to: user.email,
+        bookingId: booking._id,
+        salonName: salon.Name,
+        serviceName: salon.services.id(booking.serviceId).name,
+      });
+    } catch (emailError) {
+      console.error(
+        "Booking completed but completion email failed:",
+        emailError,
+      );
+    }
 
     return res.status(200).json({
       message: "Service completed",
