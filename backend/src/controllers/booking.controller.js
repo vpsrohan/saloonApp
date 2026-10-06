@@ -7,6 +7,7 @@ import {
   sendBookingConfirmation,
   sendBookingCompleted,
 } from "../services/email.service.js";
+import { publishEmailEvent } from "../services/kafka.service.js";
 
 const allowedTransitions = {
   PENDING: ["PROGRESS", "CANCELLED"],
@@ -213,16 +214,19 @@ export const addBooking = async (req, res) => {
       try {
         const user = await Users.findById(userId).select("email");
 
-        await sendBookingConfirmation({
-          to: user.email,
-          bookingId: newBooking._id,
-          salonName: salon.Name,
-          serviceName: service.name,
-          slotStart: slotStartTime,
-          queueNumber: newBooking.queueNumber,
+        await publishEmailEvent({
+          type: "BOOKING_CREATED",
+          data: {
+            to: user.email,
+            bookingId: newBooking._id.toString(),
+            salonName: salon.Name,
+            serviceName: service.name,
+            slotStart: slotStartTime,
+            queueNumber: newBooking.queueNumber,
+          },
         });
       } catch (e) {
-        console.error("Booking created but confirmation email failed");
+        console.error("Booking created but kafka event email failed");
       }
       return res.status(201).json(newBooking);
     } finally {
@@ -339,18 +343,19 @@ export const endService = async (req, res) => {
 
     try {
       const user = await Users.findById(booking.userId).select("email");
+      const servic = salon.services.id(booking.serviceId);
 
-      await sendBookingCompleted({
-        to: user.email,
-        bookingId: booking._id,
-        salonName: salon.Name,
-        serviceName: salon.services.id(booking.serviceId).name,
+      await publishEmailEvent({
+        type: "BOOKING_COMPLETED",
+        data: {
+          to: user.email,
+          bookingId: booking._id.toString(),
+          salonName: salon.Name,
+          serviceName: service.name,
+        },
       });
-    } catch (emailError) {
-      console.error(
-        "Booking completed but completion email failed:",
-        emailError,
-      );
+    } catch (e) {
+      console.error("Booking completed but kafka email failed:", emailError);
     }
 
     return res.status(200).json({
