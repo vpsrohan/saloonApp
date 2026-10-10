@@ -343,7 +343,7 @@ export const endService = async (req, res) => {
 
     try {
       const user = await Users.findById(booking.userId).select("email");
-      const servic = salon.services.id(booking.serviceId);
+      const service = salon.services.id(booking.serviceId);
 
       await publishEmailEvent({
         type: "BOOKING_COMPLETED",

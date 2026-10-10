@@ -8,6 +8,7 @@
   "main": "./src/server.js",
   "scripts": {
     "start": "node  src/server.js",
+    "worker":"node src/workers/email.consumer.js",
     "dev": "nodemon server.js"
   },
   "dependencies": {
