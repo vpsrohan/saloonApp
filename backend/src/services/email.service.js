@@ -1,8 +1,17 @@
 import { resend } from "../config/email.js";
 
-// ✅ Same function signature as before (to/subject/text/html in, a result
-// out, throws on failure) — nothing in email.consumer.js or anywhere else
-// that calls sendBookingConfirmation/sendBookingCompleted needs to change.
+// Resend error codes that are safe to retry — transient/infra-side, not a
+// property of the message itself. Anything NOT in this set (bad API key,
+// unverified sender domain, invalid recipient, validation errors, etc.)
+// is treated as permanent: retrying it will never succeed, so the
+// consumer should send it straight to the DLQ instead of burning retry
+// attempts on it.
+const TRANSIENT_ERROR_CODES = new Set([
+  "rate_limit_exceeded",
+  "internal_server_error",
+  "application_error",
+]);
+
 export const sendEmail = async ({ to, subject, text, html }) => {
   console.log("Starting email send:", {
     to,
@@ -11,27 +20,42 @@ export const sendEmail = async ({ to, subject, text, html }) => {
     apiKeyConfigured: Boolean(process.env.RESEND_API_KEY),
   });
 
-  // ✅ Use your own verified domain once you've set one up in the Resend
-  // dashboard (e.g. "Salon Booking <bookings@yourdomain.com>"). Until
-  // then, Resend's shared test sender works but can only send to the
-  // email address you signed up to Resend with.
   const from =
     process.env.RESEND_FROM_EMAIL || "Salon Booking <onboarding@resend.dev>";
 
-  const { data, error } = await resend.emails.send({
-    from,
-    to,
-    subject,
-    text,
-    html,
-  });
+  let data, error;
+  try {
+    ({ data, error } = await resend.emails.send({
+      from,
+      to,
+      subject,
+      text,
+      html,
+    }));
+  } catch (networkErr) {
+    // The SDK call itself threw (network/DNS/timeout) before we even got
+    // a structured API response — that's infra-side, so treat as
+    // retryable rather than guessing it's permanent.
+    console.error("Email request failed (network/transport):", networkErr);
+    const err = new Error(networkErr.message || "Email request failed");
+    err.permanent = false;
+    throw err;
+  }
 
   if (error) {
-    // Resend returns errors as a value rather than throwing — rethrow so
-    // this still behaves like the old nodemailer version (and so the
-    // retry loop in email.consumer.js still works correctly).
     console.error("Email sending failed:", error);
-    throw new Error(error.message || "Resend API error");
+
+    const err = new Error(error.message || "Resend API error");
+    err.code = error.name; // e.g. "validation_error", "invalid_api_key"
+    // Conservative default: anything NOT explicitly listed as transient
+    // is treated as permanent (skip remaining retries, go to DLQ). This
+    // is deliberately the stricter default — most Resend 4xx errors
+    // (bad API key, unverified domain, restricted recipient in test
+    // mode, validation errors) are client-side and will never succeed
+    // on retry, so there's no reason to burn attempts on them. Only
+    // known infra-side codes below get retried.
+    err.permanent = !TRANSIENT_ERROR_CODES.has(error.name);
+    throw err;
   }
 
   console.log("Email sent:", data.id);
