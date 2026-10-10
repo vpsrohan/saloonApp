@@ -3,6 +3,15 @@ import { transporter } from "../config/email.js";
 export const sendEmail = async ({ to, subject, text, html }) => {
   try {
     console.log("subject", subject);
+    console.log("Starting email send:", {
+      to,
+      subject,
+      host: process.env.EMAIL_HOST,
+      port: process.env.EMAIL_PORT,
+      userConfigured: Boolean(process.env.EMAIL_USER),
+      passwordConfigured: Boolean(process.env.EMAIL_APP_PASSWORD),
+    });
+
     const info = await transporter.sendMail({
       from: `"Salon Booking" <${process.env.EMAIL_USER}>`,
       to,
