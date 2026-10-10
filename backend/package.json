@@ -28,6 +28,7 @@
     "mongoose": "^9.1.5",
     "nodemailer": "^10.0.13",
     "openai": "^7.15.0",
+    "resend": "^6.32.1",
     "router": "^2.2.0"
   },
   "devDependencies": {

@@ -1,27 +1,17 @@
-import nodemailer from "nodemailer";
-import dns from "dns";
-
+import { Resend } from "resend";
 import "dotenv/config";
 
-// ✅ Prefer IPv4 when resolving hostnames in this process. Many PaaS hosts
-// (Render, Railway, etc.) don't route outbound IPv6 at all, but Node's
-// default DNS resolution can still hand back an AAAA (IPv6) record for
-// smtp.gmail.com, so the socket connect fails with ENETUNREACH before TLS
-// even starts. This makes Node resolve A (IPv4) records first everywhere,
-// not just for this one connection.
-dns.setDefaultResultOrder("ipv4first");
-
-export const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_APP_PASSWORD,
-  },
-  // Belt-and-suspenders: also force the socket itself to IPv4, in case
-  // something upstream (a custom DNS server, a resolver cache) ignores
-  // the process-wide setting above.
-  family: 4,
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 20000,
-});
+// ✅ Swapped from Gmail SMTP to Resend's HTTP API. Your host's outbound
+// SMTP ports (465/587) are blocked at the network level — confirmed by
+// the IPv4 fix making no difference — which is standard on free/hobby
+// PaaS tiers to prevent spam relaying. An HTTP API sends over port 443
+// (HTTPS), which is never blocked, so this sidesteps the problem instead
+// of fighting it.
+//
+// Setup:
+//   npm install resend
+//   Sign up at resend.com (free tier: 3,000 emails/month, 100/day)
+//   Add RESEND_API_KEY to your production env vars
+//   Verify a sending domain in the Resend dashboard (or use their
+//   shared `onboarding@resend.dev` sender while testing)
+export const resend = new Resend(process.env.RESEND_API_KEY);

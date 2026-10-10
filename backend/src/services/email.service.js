@@ -1,31 +1,41 @@
-import { transporter } from "../config/email.js";
+import { resend } from "../config/email.js";
 
+// ✅ Same function signature as before (to/subject/text/html in, a result
+// out, throws on failure) — nothing in email.consumer.js or anywhere else
+// that calls sendBookingConfirmation/sendBookingCompleted needs to change.
 export const sendEmail = async ({ to, subject, text, html }) => {
-  try {
-    console.log("subject", subject);
-    console.log("Starting email send:", {
-      to,
-      subject,
-      host: process.env.EMAIL_HOST,
-      port: process.env.EMAIL_PORT,
-      userConfigured: Boolean(process.env.EMAIL_USER),
-      passwordConfigured: Boolean(process.env.EMAIL_APP_PASSWORD),
-    });
+  console.log("Starting email send:", {
+    to,
+    subject,
+    provider: "resend",
+    apiKeyConfigured: Boolean(process.env.RESEND_API_KEY),
+  });
 
-    const info = await transporter.sendMail({
-      from: `"Salon Booking" <${process.env.EMAIL_USER}>`,
-      to,
-      subject,
-      text,
-      html,
-    });
-    console.log("Email Sent:", info.messageId);
+  // ✅ Use your own verified domain once you've set one up in the Resend
+  // dashboard (e.g. "Salon Booking <bookings@yourdomain.com>"). Until
+  // then, Resend's shared test sender works but can only send to the
+  // email address you signed up to Resend with.
+  const from =
+    process.env.RESEND_FROM_EMAIL || "Salon Booking <onboarding@resend.dev>";
 
-    return info;
-  } catch (e) {
-    console.error("Email sending failed", e);
-    throw e;
+  const { data, error } = await resend.emails.send({
+    from,
+    to,
+    subject,
+    text,
+    html,
+  });
+
+  if (error) {
+    // Resend returns errors as a value rather than throwing — rethrow so
+    // this still behaves like the old nodemailer version (and so the
+    // retry loop in email.consumer.js still works correctly).
+    console.error("Email sending failed:", error);
+    throw new Error(error.message || "Resend API error");
   }
+
+  console.log("Email sent:", data.id);
+  return data;
 };
 
 export const sendBookingConfirmation = async ({
