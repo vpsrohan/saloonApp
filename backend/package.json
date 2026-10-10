@@ -8,13 +8,15 @@
   "main": "./src/server.js",
   "scripts": {
     "start": "node  src/server.js",
-    "worker":"node src/workers/email.consumer.js",
-    "dev": "nodemon server.js"
+    "worker": "node src/workers/email.consumer.js",
+    "dev": "nodemon server.js",
+    "start:all": "concurrently \"npm run start\" \"npm run worker\""
   },
   "dependencies": {
     "@upstash/redis": "^1.36.1",
     "bcryptjs": "^3.0.3",
     "brcypt": "^1.0.1",
+    "concurrently": "^10.0.6",
     "cookie-parser": "^1.4.7",
     "cookieparser": "^0.1.0",
     "cors": "^2.8.6",
