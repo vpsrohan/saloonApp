@@ -226,7 +226,7 @@ export const addBooking = async (req, res) => {
           },
         });
       } catch (e) {
-        console.error("Booking created but kafka event email failed");
+        console.error("Booking created but kafka event email failed", e);
       }
       return res.status(201).json(newBooking);
     } finally {
