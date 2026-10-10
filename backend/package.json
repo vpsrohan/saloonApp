@@ -8,6 +8,7 @@
   "main": "./src/server.js",
   "scripts": {
     "start": "node  src/server.js",
+    "worker":"node src/workers/email.consumer.js",
     "dev": "nodemon server.js"
   },
   "dependencies": {
@@ -21,7 +22,9 @@
     "express": "^4.18.2",
     "groq-sdk": "^1.6.0",
     "jsonwebtoken": "^9.0.3",
+    "kafkajs": "^2.2.4",
     "mongoose": "^9.1.5",
+    "nodemailer": "^10.0.13",
     "openai": "^7.15.0",
     "router": "^2.2.0"
   },

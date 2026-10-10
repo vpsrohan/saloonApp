@@ -3,6 +3,11 @@ import Bookings from "../models/bookingModel.js";
 import Salons from "../models/salonModel.js";
 import Users from "../models/userModel.js";
 import { acquireLock, releaseLock } from "../utils/redisLock.js";
+import {
+  sendBookingConfirmation,
+  sendBookingCompleted,
+} from "../services/email.service.js";
+import { publishEmailEvent } from "../services/kafka.service.js";
 
 const allowedTransitions = {
   PENDING: ["PROGRESS", "CANCELLED"],
@@ -206,11 +211,23 @@ export const addBooking = async (req, res) => {
         idempotencyKey,
       });
 
-      // await newBooking.save();
-      // await Users.findByIdAndUpdate(userId, {
-      //   activeBookingId: newBooking._id,
-      // });
+      try {
+        const user = await Users.findById(userId).select("email");
 
+        await publishEmailEvent({
+          type: "BOOKING_CREATED",
+          data: {
+            to: user.email,
+            bookingId: newBooking._id.toString(),
+            salonName: salon.Name,
+            serviceName: service.name,
+            slotStart: slotStartTime,
+            queueNumber: newBooking.queueNumber,
+          },
+        });
+      } catch (e) {
+        console.error("Booking created but kafka event email failed");
+      }
       return res.status(201).json(newBooking);
     } finally {
       await releaseLock(lockKey, lockToken);
@@ -323,6 +340,23 @@ export const endService = async (req, res) => {
     booking.status = "DONE";
     booking.slotEnd = new Date();
     await booking.save();
+
+    try {
+      const user = await Users.findById(booking.userId).select("email");
+      const service = salon.services.id(booking.serviceId);
+
+      await publishEmailEvent({
+        type: "BOOKING_COMPLETED",
+        data: {
+          to: user.email,
+          bookingId: booking._id.toString(),
+          salonName: salon.Name,
+          serviceName: service.name,
+        },
+      });
+    } catch (e) {
+      console.error("Booking completed but kafka email failed:", emailError);
+    }
 
     return res.status(200).json({
       message: "Service completed",
