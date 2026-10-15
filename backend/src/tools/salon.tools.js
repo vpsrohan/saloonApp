@@ -5,7 +5,18 @@ const SALON_TZ_OFFSET = "+05:30";
 const OPEN_HOUR = 9;
 const CLOSE_HOUR = 21;
 
-const isValidDateString = (date) => /^\d{4}-\d{2}-\d{2}$/.test(date);
+const isValidDateString = (date) => {
+  if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return false;
+  }
+
+  const parsed = new Date(`${date}T00:00:00Z`);
+
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === date
+  );
+};
 
 export const listSalons = async () => {
   const salons = await Salons.find(
@@ -49,6 +60,12 @@ export const checkAvailability = async ({ salonName, serviceName, date }) => {
     isActive: true,
   });
 
+  if (!salon) {
+    return {
+      error: `Salon "${salonName}" was not found or is inactive`,
+    };
+  }
+
   const service = salon.services.find(
     (s) => s.isActive && s.name.toLowerCase() === serviceName.toLowerCase(),
   );
@@ -85,9 +102,16 @@ export const checkAvailability = async ({ salonName, serviceName, date }) => {
   for (let hour = OPEN_HOUR; hour < CLOSE_HOUR; hour++) {
     for (const minute of [0, 30]) {
       const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+
       const iso = new Date(
         `${date}T${time}:00${SALON_TZ_OFFSET}`,
       ).toISOString();
+
+      // Skip slots that have already passed.
+      if (new Date(iso) <= new Date()) {
+        continue;
+      }
+
       const booked = bookedCounts[iso] || 0;
       const available = service.maxPerSlot - booked;
 
