@@ -120,6 +120,31 @@ const sendToDLQOrThrow = async (event, failureInfo) => {
   }
 };
 
+let shuttingDown = false;
+
+const shutDown = async (signal) => {
+  if (shuttingDown) return;
+
+  shuttingDown = true;
+
+  console.log(`${signal} received. Shutting down email consumer.....`);
+
+  try {
+    await consumer.stop();
+    console.log("Email consumer stopped");
+
+    await consumer.disconnect();
+    console.log("Email consumer disconnected");
+  } catch (e) {
+    console.error("Error shutting down email consumer", e);
+    process.exitCode = 1;
+  }
+};
+
+process.once("SIGTERM", () => shutDown("SIGTERM"));
+process.once("SIGINT", () => shutDown("SIGINT"));
+
 run().catch((error) => {
   console.error("Email consumer crashed:", error);
+  process.exitCode = 1;
 });

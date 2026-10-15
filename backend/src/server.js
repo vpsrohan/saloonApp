@@ -9,6 +9,8 @@ import salonRoutes from "./routes/salon.route.js";
 import bookingRoutes from "./routes/booking.route.js";
 import ratingRoutes from "./routes/rating.route.js";
 import chatRoutes from "./routes/chat.routes.js";
+import { disconnectKafkaProducer } from "./services/kafka.service.js";
+import { disconnectDB } from "./config/db.js";
 
 dotenv.config();
 
@@ -35,7 +37,49 @@ app.get("/health", (req, res) => {
 });
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, "0.0.0.0", () => {
-  connectDB();
-  console.log("Serving running in", PORT);
+let server;
+let shuttingDown = false;
+
+const startServer = async () => {
+  await connectDB();
+
+  server = app.listen(PORT, "0.0.0.0", () => {
+    console.log("Server running on port", PORT);
+  });
+};
+
+const shutdown = async (signal) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  console.log(`${signal} received. Shutting down server...`);
+
+  try {
+    if (server) {
+      await new Promise((resolve, reject) => {
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+      console.log("HTTP server closed.");
+    }
+
+    await disconnectKafkaProducer();
+    console.log("Kafka producer disconnected.");
+
+    await disconnectDB();
+    //  console.log("MongoDb disconnected");
+  } catch (error) {
+    console.error("Error during server shutdown:", error);
+    process.exitCode = 1;
+  }
+};
+
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));
+
+startServer().catch((error) => {
+  console.error("Failed to start server:", error);
+  process.exitCode = 1;
 });
