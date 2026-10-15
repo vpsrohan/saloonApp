@@ -150,26 +150,11 @@ export const addBooking = async (req, res) => {
     });
   }
 
-  const lockKey = `lock:${salonId}:${serviceId}:${slotStartTime.toISOString()}`;
+  const lockKey = `lock:${salonId}:${serviceId}:${slotStart}`;
 
   try {
     const lockToken = await acquireLock(lockKey, 10);
-
     if (!lockToken) {
-      // Give the request holding the lock time to create the booking.
-      for (let attempt = 0; attempt < 10; attempt++) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-
-        const existingBooking = await Bookings.findOne({
-          idempotencyKey,
-          userId,
-        });
-
-        if (existingBooking) {
-          return res.status(200).json(existingBooking);
-        }
-      }
-
       return res.status(409).json({
         message: "Someone else is booking the slot",
       });
