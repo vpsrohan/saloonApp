@@ -4,6 +4,7 @@ import {
   getSalonServices,
   checkAvailability,
   getUserBookings,
+  findAvailableServices,
 } from "../tools/salon.tools.js";
 
 const tools = [
@@ -76,6 +77,32 @@ const tools = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "findAvailableServices",
+      description:
+        "Find upcoming available slots across active salons and services. Use this when the user asks generally which services are available, or asks for availability without specifying both a salon and service. Optional filters: salonName, serviceName, and date. If date is omitted, search today in India time. Never invent availability.",
+      parameters: {
+        type: "object",
+        properties: {
+          salonName: {
+            type: "string",
+            description: "Optional salon name filter",
+          },
+          serviceName: {
+            type: "string",
+            description: "Optional service name filter",
+          },
+          date: {
+            type: "string",
+            description: "Optional date in YYYY-MM-DD format",
+          },
+        },
+        required: [],
+      },
+    },
+  },
 ];
 
 const SYSTEM_PROMPT_BASE = `You are a helpful assistant for a salon booking app. You can help users:
@@ -116,6 +143,7 @@ export const Chat = async (req, res) => {
         }
         return getUserBookings(req.user._id);
       },
+      findAvailableServices: async (args) => findAvailableServices(args),
     };
 
     const today = new Date().toISOString().split("T")[0];

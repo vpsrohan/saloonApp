@@ -151,3 +151,127 @@ export const getUserBookings = async (userId) => {
     };
   });
 };
+
+const getTodayInKolkata = () => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+
+  const values = Object.fromEntries(
+    parts.map(({ type, value }) => [type, value]),
+  );
+
+  return `${values.year}-${values.month}-${values.day}`;
+};
+
+export const findAvailableServices = async ({
+  salonName,
+  serviceName,
+  date,
+} = {}) => {
+  const searchDate = date || getTodayInKolkata();
+
+  if (!isValidDateString(searchDate)) {
+    return { error: "date must be a valid YYYY-MM-DD date" };
+  }
+
+  const salons = await Salons.find({ isActive: true });
+
+  const matchingSalons = salons.filter(
+    (salon) =>
+      !salonName || salon.Name.toLowerCase() === salonName.trim().toLowerCase(),
+  );
+
+  if (matchingSalons.length === 0) {
+    return { message: "No active salons matched your search." };
+  }
+
+  const startOfDay = new Date(`${searchDate}T00:00:00${SALON_TZ_OFFSET}`);
+  const endOfDay = new Date(`${searchDate}T23:59:59.999${SALON_TZ_OFFSET}`);
+
+  const bookings = await Bookings.find({
+    salonId: { $in: matchingSalons.map((salon) => salon._id) },
+    slotStart: { $gte: startOfDay, $lte: endOfDay },
+    status: { $in: ["PENDING", "PROGRESS"] },
+  });
+
+  const bookedCounts = {};
+
+  for (const booking of bookings) {
+    const key = [
+      String(booking.salonId),
+      String(booking.serviceId),
+      booking.slotStart.toISOString(),
+    ].join(":");
+
+    bookedCounts[key] = (bookedCounts[key] || 0) + 1;
+  }
+
+  const results = [];
+  const now = Date.now();
+
+  for (const salon of matchingSalons) {
+    for (const service of salon.services) {
+      if (!service.isActive) continue;
+
+      if (
+        serviceName &&
+        service.name.toLowerCase() !== serviceName.trim().toLowerCase()
+      ) {
+        continue;
+      }
+
+      const availableSlots = [];
+
+      for (let hour = OPEN_HOUR; hour < CLOSE_HOUR; hour++) {
+        for (const minute of [0, 30]) {
+          const time =
+            `${String(hour).padStart(2, "0")}:` +
+            `${String(minute).padStart(2, "0")}`;
+
+          const slotStart = new Date(
+            `${searchDate}T${time}:00${SALON_TZ_OFFSET}`,
+          );
+
+          if (slotStart.getTime() <= now) continue;
+
+          const key = [
+            String(salon._id),
+            String(service._id),
+            slotStart.toISOString(),
+          ].join(":");
+
+          const available = service.maxPerSlot - (bookedCounts[key] || 0);
+
+          if (available > 0) {
+            availableSlots.push({ time, available });
+          }
+        }
+      }
+
+      if (availableSlots.length > 0) {
+        results.push({
+          salon: salon.Name,
+          service: service.name,
+          date: searchDate,
+          availableSlots,
+        });
+      }
+
+      if (results.length >= 30) break;
+    }
+
+    if (results.length >= 30) break;
+  }
+
+  return {
+    date: searchDate,
+    message: results.length
+      ? "These services have upcoming available slots."
+      : "No upcoming available slots matched your search.",
+    results,
+  };
+};
