@@ -10,7 +10,8 @@
     "start": "node  src/server.js",
     "worker": "node src/workers/email.consumer.js",
     "dev": "nodemon server.js",
-    "start:all": "concurrently \"npm run start\" \"npm run worker\""
+    "start:all": "concurrently \"npm run start\" \"npm run worker\"",
+    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js"
   },
   "dependencies": {
     "@upstash/redis": "^1.36.1",
